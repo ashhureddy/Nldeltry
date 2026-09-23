@@ -333,3 +333,123 @@ def dedupe_site_list_entries(site_list_text):
             cleaned.append(p)
             seen.add(p)
     return ";".join(cleaned)
+
+
+# ============================================================
+# ENM CLI session log — auto-fetching Site List 1 / Site List 2 instead of the engineer
+# manually pasting cmedit result NodeIds into the UI.
+#
+# The engineer runs every discovery command the tool already prints (lte_sector_discovery_
+# command, lte_node_discovery_command, gnb_sector_discovery_command, gnb_node_discovery_
+# command) in one ENM CLI shell session, for every scenario, and saves/exports the whole
+# session transcript as one .txt log. This parses that log once and buckets every result
+# table's NodeId column by which discovery command produced it, keyed by the eNBId/gNBId
+# (or gNodeB name) embedded in that command's own text -- so each scenario's Site List can
+# be looked up directly instead of the engineer copying rows out of the terminal by hand.
+# ============================================================
+
+_LOG_CMD_RE = re.compile(r'^\s*>>\s*cmedit get\b.*$')
+
+LTE_SECTOR_CMD_RE = re.compile(r'ExternalEnodeBFunction\.\(enBID==(\d+)\)')
+LTE_NODE_CMD_RE = re.compile(r'ExternalenodeBFunction\.\(eNodeBId==(\d+)\)')
+GNB_SECTOR_CMD_RE = re.compile(r'ExternalGnodeBFunction\.\(gNodeBId==(\d+)\)')
+GNB_NODE_NAME_CMD_RE = re.compile(r'ExternalGNBCUCPFunction\.\(ExternalGNBCUCPFunctionId==(\S+)\)')
+GNB_NODE_ID_CMD_RE = re.compile(r'ExternalGNBCUCPFunction\.gnbid==(\d+)')
+
+
+def _split_log_into_blocks(log_text):
+    """Splits a raw ENM CLI session transcript into (command_line, result_body) pairs, one
+    per 'cmedit get ... -t' command actually run — result_body is everything printed after
+    that command line up to (not including) the next '>> cmedit get' line."""
+    blocks = []
+    current_cmd, current_body = None, []
+    for line in (log_text or "").splitlines():
+        if _LOG_CMD_RE.match(line):
+            if current_cmd is not None:
+                blocks.append((current_cmd, "\n".join(current_body)))
+            current_cmd, current_body = line.strip(), []
+        else:
+            current_body.append(line)
+    if current_cmd is not None:
+        blocks.append((current_cmd, "\n".join(current_body)))
+    return blocks
+
+
+def _extract_node_ids_from_result(result_body):
+    """Pulls the NodeId column (first tab-separated field of each data row) out of one
+    command's tabular cmedit -t result, preserving first-seen order. Stops reading a table
+    as soon as a 'Scope:' retry-error section, an 'Error ####' line, or the trailing
+    'N instance(s)' summary line is hit — none of those are table rows."""
+    node_ids = []
+    in_table = False
+    for line in result_body.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("Scope:") or stripped.startswith("Error ") or stripped.endswith("instance(s)"):
+            break
+        if stripped.startswith("SubNetwork,"):
+            continue
+        if stripped.startswith("NodeId"):
+            in_table = True
+            continue
+        if in_table:
+            first_field = line.split("\t")[0].strip()
+            if first_field:
+                node_ids.append(first_field)
+    return node_ids
+
+
+def parse_enm_execution_log(log_text):
+    """Parses a full ENM CLI session log into every discovery result the tool needs, keyed
+    by the eNBId/gNBId/gNodeB-name embedded in each command's own text.
+
+    Returns {"lte_sector": {enbid: [NodeIds]}, "lte_node": {enbid: [NodeIds]},
+             "gnb_sector": {gnbid: [NodeIds]}, "gnb_node_by_name": {name: [NodeIds]},
+             "gnb_node_by_id": {gnbid: [NodeIds]}}."""
+    result = {"lte_sector": {}, "lte_node": {}, "gnb_sector": {}, "gnb_node_by_name": {}, "gnb_node_by_id": {}}
+    for cmd, body in _split_log_into_blocks(log_text):
+        node_ids = _extract_node_ids_from_result(body)
+        if not node_ids:
+            continue
+        m = LTE_SECTOR_CMD_RE.search(cmd)
+        if m:
+            result["lte_sector"].setdefault(m.group(1), []).extend(node_ids)
+            continue
+        m = LTE_NODE_CMD_RE.search(cmd)
+        if m:
+            result["lte_node"].setdefault(m.group(1), []).extend(node_ids)
+            continue
+        m = GNB_SECTOR_CMD_RE.search(cmd)
+        if m:
+            result["gnb_sector"].setdefault(m.group(1), []).extend(node_ids)
+            continue
+        m = GNB_NODE_NAME_CMD_RE.search(cmd)
+        if m:
+            result["gnb_node_by_name"].setdefault(m.group(1), []).extend(node_ids)
+            continue
+        m = GNB_NODE_ID_CMD_RE.search(cmd)
+        if m:
+            result["gnb_node_by_id"].setdefault(m.group(1), []).extend(node_ids)
+            continue
+    return result
+
+
+def site_list_1_from_log(parsed_log, tech, id_value):
+    """Site List 1 (sector-level), deduped/semicolon-joined, for a scenario's own eNBId/
+    gNBId — empty string if the log has no matching block (UI falls back to manual entry)."""
+    bucket = parsed_log["lte_sector"] if tech == "LTE" else parsed_log["gnb_sector"]
+    return dedupe_site_list_entries(";".join(bucket.get(str(id_value), [])))
+
+
+def site_list_2_from_log(parsed_log, tech, id_value, gnodeb_name=None):
+    """Site List 2 (node-level) for a scenario. LTE keys purely off eNBId. 5G unions the
+    ExternalGNBCUCPFunctionId==<name> result with the gnbid==<id> result, matching what
+    gnb_node_discovery_command() actually runs (both queries together, for one scenario)."""
+    if tech == "LTE":
+        ids = list(parsed_log["lte_node"].get(str(id_value), []))
+    else:
+        ids = list(parsed_log["gnb_node_by_id"].get(str(id_value), []))
+        if gnodeb_name:
+            ids += parsed_log["gnb_node_by_name"].get(str(gnodeb_name), [])
+    return dedupe_site_list_entries(";".join(ids))
