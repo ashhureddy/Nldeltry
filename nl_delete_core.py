@@ -404,14 +404,18 @@ def parse_enm_execution_log(log_text):
     """Parses a full ENM CLI session log into every discovery result the tool needs, keyed
     by the eNBId/gNBId/gNodeB-name embedded in each command's own text.
 
+    IMPORTANT: a command that matched and returned 0 instances still gets a bucket entry
+    (an empty list) — that's what lets the lookup functions below tell 'this command ran
+    and genuinely found nothing' apart from 'this command never appears in the log at all'
+    (the engineer forgot to run it, ran it against the wrong ID, or hasn't uploaded a log
+    covering this scenario yet).
+
     Returns {"lte_sector": {enbid: [NodeIds]}, "lte_node": {enbid: [NodeIds]},
              "gnb_sector": {gnbid: [NodeIds]}, "gnb_node_by_name": {name: [NodeIds]},
              "gnb_node_by_id": {gnbid: [NodeIds]}}."""
     result = {"lte_sector": {}, "lte_node": {}, "gnb_sector": {}, "gnb_node_by_name": {}, "gnb_node_by_id": {}}
     for cmd, body in _split_log_into_blocks(log_text):
         node_ids = _extract_node_ids_from_result(body)
-        if not node_ids:
-            continue
         m = LTE_SECTOR_CMD_RE.search(cmd)
         if m:
             result["lte_sector"].setdefault(m.group(1), []).extend(node_ids)
@@ -435,21 +439,66 @@ def parse_enm_execution_log(log_text):
     return result
 
 
-def site_list_1_from_log(parsed_log, tech, id_value):
-    """Site List 1 (sector-level), deduped/semicolon-joined, for a scenario's own eNBId/
-    gNBId — empty string if the log has no matching block (UI falls back to manual entry)."""
+# Site List status values, in order of severity for display purposes:
+#   "found"   -- the command appears in the log and returned at least one NodeId.
+#   "zero"    -- the command appears in the log but returned 0 instances (nothing to clean up).
+#   "missing" -- the command never appears in the log at all -- FLAG this, not a silent blank.
+SITE_LIST_FOUND = "found"
+SITE_LIST_ZERO = "zero"
+SITE_LIST_MISSING = "missing"
+
+
+def site_list_1_status(parsed_log, tech, id_value):
+    """Returns (status, site_list_text) for Site List 1 (sector-level) for a scenario's own
+    eNBId/gNBId. site_list_text is "" unless status == "found"."""
     bucket = parsed_log["lte_sector"] if tech == "LTE" else parsed_log["gnb_sector"]
-    return dedupe_site_list_entries(";".join(bucket.get(str(id_value), [])))
+    key = str(id_value)
+    if key not in bucket:
+        return SITE_LIST_MISSING, ""
+    ids = bucket[key]
+    if not ids:
+        return SITE_LIST_ZERO, ""
+    return SITE_LIST_FOUND, dedupe_site_list_entries(";".join(ids))
+
+
+def site_list_2_status(parsed_log, tech, id_value, gnodeb_name=None):
+    """Returns (status, site_list_text) for Site List 2 (node-level) for a scenario. LTE
+    keys purely off eNBId. 5G unions the ExternalGNBCUCPFunctionId==<name> result with the
+    gnbid==<id> result, matching what gnb_node_discovery_command() actually runs (both
+    queries together, for one scenario) -- "missing" only when NEITHER of those two queries
+    appears in the log at all; "zero" when at least one was run but the combined result is
+    empty; "found" when the combined result has at least one NodeId."""
+    if tech == "LTE":
+        bucket = parsed_log["lte_node"]
+        key = str(id_value)
+        if key not in bucket:
+            return SITE_LIST_MISSING, ""
+        ids = bucket[key]
+        if not ids:
+            return SITE_LIST_ZERO, ""
+        return SITE_LIST_FOUND, dedupe_site_list_entries(";".join(ids))
+
+    id_key = str(id_value)
+    name_key = str(gnodeb_name) if gnodeb_name else None
+    id_present = id_key in parsed_log["gnb_node_by_id"]
+    name_present = bool(name_key) and name_key in parsed_log["gnb_node_by_name"]
+    if not id_present and not name_present:
+        return SITE_LIST_MISSING, ""
+    ids = list(parsed_log["gnb_node_by_id"].get(id_key, []))
+    if name_key:
+        ids += parsed_log["gnb_node_by_name"].get(name_key, [])
+    if not ids:
+        return SITE_LIST_ZERO, ""
+    return SITE_LIST_FOUND, dedupe_site_list_entries(";".join(ids))
+
+
+def site_list_1_from_log(parsed_log, tech, id_value):
+    """Back-compat convenience: just the site list text, "" for any non-"found" status."""
+    _, text = site_list_1_status(parsed_log, tech, id_value)
+    return text
 
 
 def site_list_2_from_log(parsed_log, tech, id_value, gnodeb_name=None):
-    """Site List 2 (node-level) for a scenario. LTE keys purely off eNBId. 5G unions the
-    ExternalGNBCUCPFunctionId==<name> result with the gnbid==<id> result, matching what
-    gnb_node_discovery_command() actually runs (both queries together, for one scenario)."""
-    if tech == "LTE":
-        ids = list(parsed_log["lte_node"].get(str(id_value), []))
-    else:
-        ids = list(parsed_log["gnb_node_by_id"].get(str(id_value), []))
-        if gnodeb_name:
-            ids += parsed_log["gnb_node_by_name"].get(str(gnodeb_name), [])
-    return dedupe_site_list_entries(";".join(ids))
+    """Back-compat convenience: just the site list text, "" for any non-"found" status."""
+    _, text = site_list_2_status(parsed_log, tech, id_value, gnodeb_name=gnodeb_name)
+    return text
