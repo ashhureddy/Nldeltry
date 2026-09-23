@@ -299,7 +299,11 @@ if st.session_state.nl_scope == "Legacy":
                     st.code(gnb_sector_discovery_command(id_val), language=None)
                 sl1_key = f"sl1_{key}"
                 render_site_list_status("nl_enm_log_parsed", 1, s["tech"], id_val)
-                ui["site_list_1"] = st.text_area("Site List 1 result (sector-level)", key=sl1_key, height=80)
+                sl1_raw = st.text_area("Site List 1 result (sector-level)", key=sl1_key, height=80)
+                ui["site_list_1"] = core.dedupe_site_list_entries(sl1_raw)
+                dupes1 = core.find_duplicate_site_list_entries(sl1_raw)
+                if dupes1:
+                    st.info(f"Removed duplicate Site IDs: {', '.join(dupes1)}")
 
                 st.markdown("**Run for Site List 2 (node-level):**")
                 if s["tech"] == "LTE":
@@ -327,7 +331,11 @@ if st.session_state.nl_scope == "Legacy":
                 st.code(lte_sector_discovery_command(id_val), language=None)
             sl1_key = f"sl1_{key}"
             render_site_list_status("nl_enm_log_parsed", 1, s["tech"], id_val, gnodeb_name=ui.get("gnodeb_name"))
-            ui["site_list_1"] = st.text_area("Site List 1 (result)", key=sl1_key, height=80)
+            sl1_raw = st.text_area("Site List 1 (result)", key=sl1_key, height=80)
+            ui["site_list_1"] = core.dedupe_site_list_entries(sl1_raw)
+            dupes1 = core.find_duplicate_site_list_entries(sl1_raw)
+            if dupes1:
+                st.info(f"Removed duplicate Site IDs: {', '.join(dupes1)}")
 
 
     if scenarios:
@@ -383,7 +391,11 @@ elif st.session_state.nl_scope == "N2E":
             st.code(gnb_sector_discovery_command(id_val), language=None)
         n2e_sl1_key = f"n2e_sl1_{key}"
         render_site_list_status("n2e_enm_log_parsed", 1, s["tech"], id_val, gnodeb_name=ui.get("gnodeb_name"))
-        ui["site_list_1"] = st.text_area("Site List 1 result (sector-level)", key=n2e_sl1_key, height=80)
+        n2e_sl1_raw = st.text_area("Site List 1 result (sector-level)", key=n2e_sl1_key, height=80)
+        ui["site_list_1"] = core.dedupe_site_list_entries(n2e_sl1_raw)
+        n2e_dupes1 = core.find_duplicate_site_list_entries(n2e_sl1_raw)
+        if n2e_dupes1:
+            st.info(f"Removed duplicate Site IDs: {', '.join(n2e_dupes1)}")
 
         if is_deletion:
             st.markdown("**Run for Site List 2 (node-level):**")
