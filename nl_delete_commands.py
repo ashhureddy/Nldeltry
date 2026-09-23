@@ -113,18 +113,14 @@ def build_lte_scenario(enbid, site_list_1, cells, is_deletion, site_list_2=None,
 
         if site_list_2:
             sites = _split_sites(site_list_2)
-            # wide flat GET across the whole site list -- BEFORE
+            # wide flat GET across the whole site list -- BEFORE (all sites, once)
             node_step3.append(f"cmedit get {site_list_2} TermPointToENodeB.(termPointToENodeBId,administrativeState,operationalState) -t")
-            # full-FDN GET, one per site -- BEFORE
+            # per site: full-FDN GET -> SET LOCKED -> GET, before moving to the next site
             for site in sites:
                 node_step3.append(f"cmedit get SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},ENodeBFunction=1,EUtraNetwork=1,ExternalENodeBFunction=auto310_410_3_{enbid},TermPointToENodeB=auto1 -t")
-            # full-FDN SET LOCKED, one per site
-            for site in sites:
                 node_step3.append(f"cmedit set SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},ENodeBFunction=1,EUtraNetwork=1,ExternalENodeBFunction=auto310_410_3_{enbid},TermPointToENodeB=auto1 administrativestate:LOCKED --force")
-            # full-FDN GET, one per site -- AFTER
-            for site in sites:
                 node_step3.append(f"cmedit get SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},ENodeBFunction=1,EUtraNetwork=1,ExternalENodeBFunction=auto310_410_3_{enbid},TermPointToENodeB=auto1 -t")
-            # wide flat GET across the whole site list -- AFTER
+            # wide flat GET across the whole site list -- AFTER (all sites, once)
             node_step3.append(f"cmedit get {site_list_2} TermPointToENodeB.(termPointToENodeBId,administrativeState,operationalState) -t")
             node_step3.append(f"cmedit delete {site_list_2}  ExternalENodeBFunction.(ExternalENodeBFunctionID==auto310_410_3_{enbid}) -ALL")
 
@@ -242,24 +238,20 @@ def build_5g_scenario(gnbid, gnodeb_name, site_list_1, cells, is_deletion, site_
 
         if site_list_2:
             sites = _split_sites(site_list_2)
-            # wide flat GET across the whole site list -- BEFORE
+            # wide flat GET across the whole site list -- BEFORE (all sites, once)
             node_step3.append(f"cmedit get {site_list_2} TermPointToGNodeB.(TermPointToGNodeBId,administrativeState,operationalState) -t")
-            # full-FDN GET, one per site, both ID variants -- BEFORE
+            # per site: full-FDN GET -> SET LOCKED -> GET, both ID variants, before moving to the next site
             for site in sites:
                 node_step3.append(f"cmedit get SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},GNBCUCPFunction=1,NRNetwork=1,ExternalGNBCUCPFunction=auto310_410_3_{gnbid},TermPointToGNodeB=auto1 -t")
                 if delete_node_site_id:
                     node_step3.append(f"cmedit get SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},GNBCUCPFunction=1,NRNetwork=1,ExternalGNBCUCPFunction={delete_node_site_id},TermPointToGNodeB=auto1 -t")
-            # full-FDN SET LOCKED, one per site, both ID variants
-            for site in sites:
                 node_step3.append(f"cmedit set SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},GNBCUCPFunction=1,NRNetwork=1,ExternalGNBCUCPFunction=auto310_410_3_{gnbid},TermPointToGNodeB=auto1 administrativestate:LOCKED --force")
                 if delete_node_site_id:
                     node_step3.append(f"cmedit set SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},GNBCUCPFunction=1,NRNetwork=1,ExternalGNBCUCPFunction={delete_node_site_id},TermPointToGNodeB=auto1 administrativestate:LOCKED --force")
-            # full-FDN GET, one per site, both ID variants -- AFTER
-            for site in sites:
                 node_step3.append(f"cmedit get SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},GNBCUCPFunction=1,NRNetwork=1,ExternalGNBCUCPFunction=auto310_410_3_{gnbid},TermPointToGNodeB=auto1 -t")
                 if delete_node_site_id:
                     node_step3.append(f"cmedit get SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},GNBCUCPFunction=1,NRNetwork=1,ExternalGNBCUCPFunction={delete_node_site_id},TermPointToGNodeB=auto1 -t")
-            # wide flat GET across the whole site list -- AFTER
+            # wide flat GET across the whole site list -- AFTER (all sites, once)
             node_step3.append(f"cmedit get {site_list_2} TermPointToGNodeB.(TermPointToGNodeBId,administrativeState,operationalState) -t")
             node_step3.append(f"cmedit delete {site_list_2} ExternalGNBCUCPFunction.gnbid=={gnbid} --force -ALL")
 
