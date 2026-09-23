@@ -253,7 +253,7 @@ if st.session_state.nl_scope == "Legacy":
         post_state = core.parse_ciq_post_state(ciq_wb)
         move_rows = core.parse_sector_del_movement(ciq_wb)
         scenarios = core.build_scenarios(pre_state, post_state, move_rows)
-        pre_line, post_line = core.build_pre_post_config_lines(pre_state, post_state)
+        pre_line, post_line = core.build_pre_post_config_lines(pre_state, post_state, ciq_wb=ciq_wb)
 
         st.session_state.nl_scenarios = scenarios
         st.session_state.nl_pre_line = pre_line
@@ -342,6 +342,7 @@ if st.session_state.nl_scope == "Legacy":
         with st.container(border=True):
             st.markdown(f"**Pre Configuration:** {st.session_state.get('nl_pre_line', '')}")
             st.markdown(f"**Post Configuration:** {st.session_state.get('nl_post_line', '')}")
+
 
         render_enm_log_uploader(
             scenarios, widget_key="nl_enm_log_upload", session_sig_key="nl_enm_log_sig",
