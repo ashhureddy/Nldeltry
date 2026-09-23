@@ -198,6 +198,33 @@ def render_enm_log_uploader(scenarios, widget_key, session_sig_key, parsed_key, 
     return st.session_state.get(parsed_key)
 
 
+def render_site_list_status(parsed_key, list_num, tech, id_val, gnodeb_name=None):
+    """Shows the ENM-log status for one Site List field, if a log has been uploaded --
+    three distinct states, not a silent blank box:
+      - found:   auto-filled, with how many sites.
+      - zero:    the command ran and genuinely found 0 instances (nothing to clean up here).
+      - missing: the command never appears in the uploaded log at all -- FLAGGED, since this
+                 usually means the engineer forgot to run it, ran it for the wrong ID, or the
+                 uploaded log doesn't cover this scenario yet.
+    Shows nothing if no log has been uploaded (falls back to the plain manual-entry flow)."""
+    parsed_log = st.session_state.get(parsed_key)
+    if not parsed_log or not id_val:
+        return
+    if list_num == 1:
+        status, text = core.site_list_1_status(parsed_log, tech, id_val)
+    else:
+        status, text = core.site_list_2_status(parsed_log, tech, id_val, gnodeb_name=gnodeb_name)
+
+    if status == core.SITE_LIST_FOUND:
+        count = len(text.split(";")) if text else 0
+        st.caption(f"✓ Auto-filled from uploaded ENM log ({count} site(s)) — edit below if needed.")
+    elif status == core.SITE_LIST_ZERO:
+        st.warning("Zero instances found for this command in the ENM log — nothing to clean up here.")
+    elif status == core.SITE_LIST_MISSING:
+        st.error("⚠️ Command not found in the uploaded ENM CLI session log — run it in ENM and "
+                  "re-upload the log, or paste the result manually below.")
+
+
 if st.session_state.nl_scope == "Legacy":
     with st.container(border=True):
         st.subheader("1. Inputs")
@@ -271,8 +298,7 @@ if st.session_state.nl_scope == "Legacy":
                 else:
                     st.code(gnb_sector_discovery_command(id_val), language=None)
                 sl1_key = f"sl1_{key}"
-                if st.session_state.get(sl1_key):
-                    st.caption("✓ Auto-filled from uploaded ENM log — edit below if needed.")
+                render_site_list_status("nl_enm_log_parsed", 1, s["tech"], id_val)
                 ui["site_list_1"] = st.text_area("Site List 1 result (sector-level)", key=sl1_key, height=80)
 
                 st.markdown("**Run for Site List 2 (node-level):**")
@@ -281,8 +307,7 @@ if st.session_state.nl_scope == "Legacy":
                 else:
                     st.code(gnb_node_discovery_command(ui.get("gnodeb_name", s["identity_name"]), id_val), language=None)
                 sl2_key = f"sl2_{key}"
-                if st.session_state.get(sl2_key):
-                    st.caption("✓ Auto-filled from uploaded ENM log — edit below if needed.")
+                render_site_list_status("nl_enm_log_parsed", 2, s["tech"], id_val, gnodeb_name=ui.get("gnodeb_name", s["identity_name"]))
                 sl2_raw = st.text_area("Site List 2 result (node-level)", key=sl2_key, height=80)
                 ui["site_list_2"] = core.dedupe_site_list_entries(sl2_raw)
                 dupes = core.find_duplicate_site_list_entries(sl2_raw)
@@ -301,8 +326,7 @@ if st.session_state.nl_scope == "Legacy":
             else:
                 st.code(lte_sector_discovery_command(id_val), language=None)
             sl1_key = f"sl1_{key}"
-            if st.session_state.get(sl1_key):
-                st.caption("✓ Auto-filled from uploaded ENM log — edit below if needed.")
+            render_site_list_status("nl_enm_log_parsed", 1, s["tech"], id_val, gnodeb_name=ui.get("gnodeb_name"))
             ui["site_list_1"] = st.text_area("Site List 1 (result)", key=sl1_key, height=80)
 
 
@@ -358,8 +382,7 @@ elif st.session_state.nl_scope == "N2E":
         else:
             st.code(gnb_sector_discovery_command(id_val), language=None)
         n2e_sl1_key = f"n2e_sl1_{key}"
-        if st.session_state.get(n2e_sl1_key):
-            st.caption("✓ Auto-filled from uploaded ENM log — edit below if needed.")
+        render_site_list_status("n2e_enm_log_parsed", 1, s["tech"], id_val, gnodeb_name=ui.get("gnodeb_name"))
         ui["site_list_1"] = st.text_area("Site List 1 result (sector-level)", key=n2e_sl1_key, height=80)
 
         if is_deletion:
@@ -369,8 +392,7 @@ elif st.session_state.nl_scope == "N2E":
             else:
                 st.code(gnb_node_discovery_command(ui.get("gnodeb_name", s["identity_name"]), id_val), language=None)
             n2e_sl2_key = f"n2e_sl2_{key}"
-            if st.session_state.get(n2e_sl2_key):
-                st.caption("✓ Auto-filled from uploaded ENM log — edit below if needed.")
+            render_site_list_status("n2e_enm_log_parsed", 2, s["tech"], id_val, gnodeb_name=ui.get("gnodeb_name"))
             sl2_raw = st.text_area("Site List 2 result (node-level)", key=n2e_sl2_key, height=80)
             ui["site_list_2"] = core.dedupe_site_list_entries(sl2_raw)
             dupes = core.find_duplicate_site_list_entries(sl2_raw)
