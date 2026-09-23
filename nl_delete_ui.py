@@ -150,6 +150,54 @@ def render_scenarios_grouped(scenarios, render_fn):
                 render_fn(site_scenarios[0])
 
 
+def render_enm_log_uploader(scenarios, widget_key, session_sig_key, parsed_key, sl_key_prefix, kgetall_key="nl_kgetall_texts"):
+    """Shared 'upload ENM CLI session log' block for both Legacy and N2E. The engineer runs
+    every Site List discovery command the tool prints (for every scenario) in one ENM CLI
+    session and saves the whole transcript as one .txt log; uploading it here parses it once
+    and presets each scenario's Site List 1 / Site List 2 widget state directly from it, so
+    the text areas render pre-filled instead of the engineer pasting each result by hand.
+    A scenario the log has no match for is left exactly as it was (empty, or whatever the
+    engineer already typed) -- manual entry always still works as a fallback.
+
+    Returns the parsed log dict (or None if nothing has been uploaded yet)."""
+    with st.container(border=True):
+        st.markdown(
+            "**ENM CLI session log (optional)** — run every Site List discovery command "
+            "shown below in one ENM CLI session, save the transcript, and upload it here "
+            "to auto-fill Site List 1 / Site List 2 instead of pasting each result by hand."
+        )
+        log_file = st.file_uploader("ENM CLI session log (.txt)", type=["txt", "log"], key=widget_key)
+        if log_file is not None:
+            log_bytes = log_file.getvalue()
+            log_sig = (log_file.name, len(log_bytes))
+            if st.session_state.get(session_sig_key) != log_sig:
+                log_text = log_bytes.decode("utf-8", errors="replace")
+                parsed_log = core.parse_enm_execution_log(log_text)
+                st.session_state[parsed_key] = parsed_log
+                st.session_state[session_sig_key] = log_sig
+                kgetall_texts = st.session_state.get(kgetall_key, [])
+                filled = 0
+                for sc in scenarios:
+                    key = (sc["node"], sc["tech"])
+                    id_val = sc.get("id_value") or core.find_own_id_in_any_kgetall(kgetall_texts, sc["node"], sc["tech"])
+                    if not id_val:
+                        continue
+                    sl1 = core.site_list_1_from_log(parsed_log, sc["tech"], id_val)
+                    if sl1:
+                        st.session_state[f"{sl_key_prefix}sl1_{key}"] = sl1
+                        filled += 1
+                    if sc["status"] == "deletes":
+                        sl2 = core.site_list_2_from_log(parsed_log, sc["tech"], id_val, gnodeb_name=sc["identity_name"])
+                        if sl2:
+                            st.session_state[f"{sl_key_prefix}sl2_{key}"] = sl2
+                            filled += 1
+                if filled:
+                    st.success(f"ENM log parsed — auto-filled {filled} Site List field(s) below.")
+                else:
+                    st.warning("ENM log parsed, but no matching eNBId/gNBId discovery results were found in it.")
+    return st.session_state.get(parsed_key)
+
+
 if st.session_state.nl_scope == "Legacy":
     with st.container(border=True):
         st.subheader("1. Inputs")
@@ -222,14 +270,20 @@ if st.session_state.nl_scope == "Legacy":
                     st.code(lte_sector_discovery_command(id_val), language=None)
                 else:
                     st.code(gnb_sector_discovery_command(id_val), language=None)
-                ui["site_list_1"] = st.text_area("Site List 1 result (sector-level)", key=f"sl1_{key}", height=80)
+                sl1_key = f"sl1_{key}"
+                if st.session_state.get(sl1_key):
+                    st.caption("✓ Auto-filled from uploaded ENM log — edit below if needed.")
+                ui["site_list_1"] = st.text_area("Site List 1 result (sector-level)", key=sl1_key, height=80)
 
                 st.markdown("**Run for Site List 2 (node-level):**")
                 if s["tech"] == "LTE":
                     st.code(lte_node_discovery_command(id_val), language=None)
                 else:
                     st.code(gnb_node_discovery_command(ui.get("gnodeb_name", s["identity_name"]), id_val), language=None)
-                sl2_raw = st.text_area("Site List 2 result (node-level)", key=f"sl2_{key}", height=80)
+                sl2_key = f"sl2_{key}"
+                if st.session_state.get(sl2_key):
+                    st.caption("✓ Auto-filled from uploaded ENM log — edit below if needed.")
+                sl2_raw = st.text_area("Site List 2 result (node-level)", key=sl2_key, height=80)
                 ui["site_list_2"] = core.dedupe_site_list_entries(sl2_raw)
                 dupes = core.find_duplicate_site_list_entries(sl2_raw)
                 if dupes:
@@ -246,13 +300,21 @@ if st.session_state.nl_scope == "Legacy":
                 st.code(gnb_sector_discovery_command(id_val), language=None)
             else:
                 st.code(lte_sector_discovery_command(id_val), language=None)
-            ui["site_list_1"] = st.text_area("Site List 1 (result)", key=f"sl1_{key}", height=80)
+            sl1_key = f"sl1_{key}"
+            if st.session_state.get(sl1_key):
+                st.caption("✓ Auto-filled from uploaded ENM log — edit below if needed.")
+            ui["site_list_1"] = st.text_area("Site List 1 (result)", key=sl1_key, height=80)
 
 
     if scenarios:
         with st.container(border=True):
             st.markdown(f"**Pre Configuration:** {st.session_state.get('nl_pre_line', '')}")
             st.markdown(f"**Post Configuration:** {st.session_state.get('nl_post_line', '')}")
+
+        render_enm_log_uploader(
+            scenarios, widget_key="nl_enm_log_upload", session_sig_key="nl_enm_log_sig",
+            parsed_key="nl_enm_log_parsed", sl_key_prefix="",
+        )
 
         st.subheader("2. Detected scenarios")
         render_scenarios_grouped(scenarios, render_scenario_inputs)
@@ -295,7 +357,10 @@ elif st.session_state.nl_scope == "N2E":
             st.code(lte_sector_discovery_command(id_val), language=None)
         else:
             st.code(gnb_sector_discovery_command(id_val), language=None)
-        ui["site_list_1"] = st.text_area("Site List 1 result (sector-level)", key=f"n2e_sl1_{key}", height=80)
+        n2e_sl1_key = f"n2e_sl1_{key}"
+        if st.session_state.get(n2e_sl1_key):
+            st.caption("✓ Auto-filled from uploaded ENM log — edit below if needed.")
+        ui["site_list_1"] = st.text_area("Site List 1 result (sector-level)", key=n2e_sl1_key, height=80)
 
         if is_deletion:
             st.markdown("**Run for Site List 2 (node-level):**")
@@ -303,7 +368,10 @@ elif st.session_state.nl_scope == "N2E":
                 st.code(lte_node_discovery_command(id_val), language=None)
             else:
                 st.code(gnb_node_discovery_command(ui.get("gnodeb_name", s["identity_name"]), id_val), language=None)
-            sl2_raw = st.text_area("Site List 2 result (node-level)", key=f"n2e_sl2_{key}", height=80)
+            n2e_sl2_key = f"n2e_sl2_{key}"
+            if st.session_state.get(n2e_sl2_key):
+                st.caption("✓ Auto-filled from uploaded ENM log — edit below if needed.")
+            sl2_raw = st.text_area("Site List 2 result (node-level)", key=n2e_sl2_key, height=80)
             ui["site_list_2"] = core.dedupe_site_list_entries(sl2_raw)
             dupes = core.find_duplicate_site_list_entries(sl2_raw)
             if dupes:
@@ -343,6 +411,11 @@ elif st.session_state.nl_scope == "N2E":
     n2e_scenarios = st.session_state.n2e_scenarios
 
     if n2e_scenarios:
+        render_enm_log_uploader(
+            n2e_scenarios, widget_key="n2e_enm_log_upload", session_sig_key="n2e_enm_log_sig",
+            parsed_key="n2e_enm_log_parsed", sl_key_prefix="n2e_",
+        )
+
         st.subheader("2. Detected scenarios")
         render_scenarios_grouped(n2e_scenarios, render_n2e_scenario_inputs)
         render_generate_section(n2e_scenarios, "n2e", suppress_node_existence_check=True)
