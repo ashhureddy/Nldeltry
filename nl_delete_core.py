@@ -236,11 +236,18 @@ def format_site_label(site, site_techs, primary_tech):
     return ""
 
 
-def build_pre_post_config_lines(pre_state, post_state):
+def build_pre_post_config_lines(pre_state, post_state, ciq_wb=None):
     """Returns (pre_line, post_line) — e.g. 'FCL06371R(P)/FCON096371(S) + ALL04584' style
-    summary strings, one entry per physical site, for display at the top of results."""
+    summary strings, one entry per physical site, for display at the top of results.
+
+    post_line covers every node in the CIQ, not just ones that existed in Pre-checks: sites
+    also seen in Pre-checks get their post-state looked up as before (survives with its CIQ ID,
+    or nothing if deleted); when ciq_wb is given, any CIQ Mixed Mode Info node with NO
+    Pre-checks entry at all (a brand-new node being added) is appended to the same post_line
+    too, labeled the same '<node>(P)/<secondary>(S)' way — all in one line, not a separate one."""
     primary_tech_by_site = determine_primary_tech(pre_state)
     pre_labels, post_labels = [], []
+    pre_sites = set(pre_state.keys())
     for site, techs in pre_state.items():
         primary_tech = primary_tech_by_site.get(site)
         pre_label = format_site_label(site, techs, primary_tech)
@@ -255,6 +262,22 @@ def build_pre_post_config_lines(pre_state, post_state):
         post_label = format_site_label(site, post_techs, primary_tech)
         if post_label:
             post_labels.append(post_label)
+
+    if ciq_wb is not None and "Mixed Mode Info" in ciq_wb.sheetnames:
+        for row in sheet_objs(ciq_wb["Mixed Mode Info"]):
+            node = row.get("Node to be built as")
+            if not is_populated(node):
+                continue
+            node = str(node).strip()
+            if node in pre_sites:
+                continue  # already covered by the pre_state-driven loop above
+            enb_name = str(row.get("eNodeB Name")).strip() if is_populated(row.get("eNodeB Name")) else None
+            gnb_name = str(row.get("gNodeB Name")).strip() if is_populated(row.get("gNodeB Name")) else None
+            if enb_name and gnb_name and enb_name != gnb_name:
+                secondary = gnb_name if enb_name == node else enb_name
+                post_labels.append(f"{node}(P)/{secondary}(S)")
+            else:
+                post_labels.append(node)
 
     return " + ".join(pre_labels), " + ".join(post_labels)
 
