@@ -126,6 +126,10 @@ def build_5g_scenario(gnbid, gnodeb_name, site_list_1, cells, is_deletion, site_
 
     tpgnb_num = f"TermPointToGNB.(administrativeState,usedipAddress,operationalState,availabilityStatus,termpointtognbId==310410-000000{gnbid})"
     tpgnb_name = f"TermPointToGNB.(administrativeState,usedipAddress,operationalState,availabilityStatus,termpointtognbId=={gnodeb_name})" if gnodeb_name else None
+    # TermPointToGNodeB (distinct MO from TermPointToGNB above, keyed by gNodeB Name only --
+    # no numeric-ID form for this one) -- LOCK/UNLOCK for sector move, LOCK/DELETE for full
+    # identity deletion, appended after the TermPointToGNB pair for both scenario types.
+    tpgnodeb_name = f"TermPointToGNodeB.(TermPointToGNodeBID=={gnodeb_name})" if gnodeb_name else None
 
     prechecks, set_delete, get_verify, postchecks, node_step3 = [], [], [], [], []
 
@@ -141,6 +145,8 @@ def build_5g_scenario(gnbid, gnodeb_name, site_list_1, cells, is_deletion, site_
         prechecks.append(f"cmedit get {site_list_1} {tpgnb_num} -t")
         if tpgnb_name:
             prechecks.append(f"cmedit get {site_list_1} {tpgnb_name} -t")
+        if tpgnodeb_name:
+            prechecks.append(f"cmedit get {site_list_1} {tpgnodeb_name} -t")
         if is_deletion:
             prechecks.append(f"cmedit get {site_list_1} {gnb_sector_discovery_command(gnbid).split('cmedit get ')[-1]}")
 
@@ -168,6 +174,13 @@ def build_5g_scenario(gnbid, gnodeb_name, site_list_1, cells, is_deletion, site_
             if gnodeb_name:
                 set_delete.append(f"cmedit set {site_list_1} TermPointToGNB.(termpointtognbId=={gnodeb_name}) administrativestate=UNLOCKED")
 
+        if tpgnodeb_name:
+            set_delete.append(f"cmedit set {site_list_1} {tpgnodeb_name} administrativestate=LOCKED")
+            if is_deletion:
+                set_delete.append(f"cmedit delete {site_list_1} {tpgnodeb_name} --force -ALL")
+            else:
+                set_delete.append(f"cmedit set {site_list_1} {tpgnodeb_name} administrativestate=UNLOCKED")
+
         for cid in cell_ids:
             get_verify.append(f"cmedit get {site_list_1}  ExternalGUtranCell.(externalGUtranCellId==310410-000000{gnbid}-{cid}) -t")
         for cid in cell_ids:
@@ -179,6 +192,8 @@ def build_5g_scenario(gnbid, gnodeb_name, site_list_1, cells, is_deletion, site_
         get_verify.append(f"cmedit get {site_list_1} {tpgnb_num} -t")
         if tpgnb_name:
             get_verify.append(f"cmedit get {site_list_1} {tpgnb_name} -t")
+        if tpgnodeb_name:
+            get_verify.append(f"cmedit get {site_list_1} {tpgnodeb_name} -t")
         if is_deletion:
             get_verify.append(f"cmedit get {site_list_1} ExternalGnodeBFunction.(gNodeBId=={gnbid}) -t")
 
@@ -193,6 +208,8 @@ def build_5g_scenario(gnbid, gnodeb_name, site_list_1, cells, is_deletion, site_
         postchecks.append(f"cmedit get {site_list_1} {tpgnb_num} -t")
         if tpgnb_name:
             postchecks.append(f"cmedit get {site_list_1} {tpgnb_name} -t")
+        if tpgnodeb_name:
+            postchecks.append(f"cmedit get {site_list_1} {tpgnodeb_name} -t")
 
     if is_deletion:
         if gnodeb_name:
