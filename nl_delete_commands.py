@@ -156,6 +156,8 @@ def build_5g_scenario(gnbid, gnodeb_name, site_list_1, cells, is_deletion, site_
         set_delete.append(f"cmedit set {site_list_1} TermPointToGNB.(termpointtognbId==310410-000000{gnbid}) administrativestate=LOCKED")
         if gnodeb_name:
             set_delete.append(f"cmedit set {site_list_1} TermPointToGNB.(termpointtognbId=={gnodeb_name}) administrativestate=LOCKED")
+        if tpgnodeb_name:
+            set_delete.append(f"cmedit set {site_list_1} {tpgnodeb_name} administrativestate=LOCKED")
         for cid in cell_ids:
             set_delete.append(f"cmedit delete {site_list_1}  GUtranCellRelation.(gUtranCellRelationId==310410-000000{gnbid}-{cid}) --force -ALL")
         for cid in cell_ids:
@@ -168,17 +170,14 @@ def build_5g_scenario(gnbid, gnodeb_name, site_list_1, cells, is_deletion, site_
             set_delete.append(f"cmedit delete {site_list_1} TermPointToGNB.(termpointtognbId==310410-000000{gnbid}) --force -ALL")
             if gnodeb_name:
                 set_delete.append(f"cmedit delete {site_list_1} TermPointToGNB.(termpointtognbId=={gnodeb_name}) --force -ALL")
+            if tpgnodeb_name:
+                set_delete.append(f"cmedit delete {site_list_1} {tpgnodeb_name} --force -ALL")
             set_delete.append(f"cmedit delete {site_list_1} ExternalGnodeBFunction.(gNodeBId=={gnbid}) --force -ALL")
         else:
             set_delete.append(f"cmedit set {site_list_1} TermPointToGNB.(termpointtognbId==310410-000000{gnbid}) administrativestate=UNLOCKED")
             if gnodeb_name:
                 set_delete.append(f"cmedit set {site_list_1} TermPointToGNB.(termpointtognbId=={gnodeb_name}) administrativestate=UNLOCKED")
-
-        if tpgnodeb_name:
-            set_delete.append(f"cmedit set {site_list_1} {tpgnodeb_name} administrativestate=LOCKED")
-            if is_deletion:
-                set_delete.append(f"cmedit delete {site_list_1} {tpgnodeb_name} --force -ALL")
-            else:
+            if tpgnodeb_name:
                 set_delete.append(f"cmedit set {site_list_1} {tpgnodeb_name} administrativestate=UNLOCKED")
 
         for cid in cell_ids:
