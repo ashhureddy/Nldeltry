@@ -1,12 +1,101 @@
 import streamlit as st
 import openpyxl
 import io
+import os
+import base64
 
 import nl_delete_core as core
 from nl_delete_commands import lte_sector_discovery_command, lte_node_discovery_command, gnb_sector_discovery_command, gnb_node_discovery_command
 from nl_delete_assemble import assemble_outputs
 
 st.set_page_config(page_title="NL Delete", layout="wide")
+
+LOGIN_BACKGROUND_PATH = os.path.join(os.path.dirname(__file__), "assets", "login_background.jpg")
+
+
+def _login_background_css():
+    """Full-bleed MasTec background photo behind the login screen only, with the
+    username/password form styled as a dark, high-contrast card (blurred backdrop, white
+    text) so it stays readable over a busy photo. Silently skipped if the image file is
+    missing, so a bad/missing asset never breaks the login screen itself."""
+    try:
+        with open(LOGIN_BACKGROUND_PATH, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+    except OSError:
+        return
+    st.markdown(f"""
+    <style>
+      [data-testid="stAppViewContainer"] {{
+          background-image: linear-gradient(rgba(1,20,40,0.55), rgba(1,20,40,0.55)),
+                             url("data:image/jpeg;base64,{b64}");
+          background-size: cover;
+          background-position: center;
+          background-attachment: fixed;
+      }}
+      [data-testid="stHeader"] {{ background: rgba(0,0,0,0); }}
+      div[data-testid="stForm"] {{
+          background: rgba(1, 20, 40, 0.72);
+          backdrop-filter: blur(6px);
+          border: 1px solid rgba(255,255,255,0.25);
+          border-radius: 14px;
+          padding: 2rem 2rem 1rem 2rem;
+          max-width: 420px;
+          margin: 17vh auto 0 auto;
+          box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+      }}
+      div[data-testid="stForm"] label p {{
+          color: #ffffff !important;
+          font-weight: 600;
+      }}
+      .nl-login-title {{
+          text-align: center;
+          color: #ffffff;
+          font-size: 2rem;
+          font-weight: 900;
+          letter-spacing: 1px;
+          text-shadow: 0 2px 10px rgba(0,0,0,0.6);
+          margin-top: -1rem;
+      }}
+      .nl-login-sub {{
+          text-align: center;
+          color: #d8e4f2;
+          margin-bottom: 0;
+      }}
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def check_login():
+    """Gates the whole app behind a single username/password stored in Streamlit secrets
+    (Settings -> Secrets on Streamlit Cloud, as a [auth] table with username/password keys --
+    never hardcoded in this file). Structured as a dict lookup so it's a small step to grow
+    into multiple users later: swap `_valid_login` for a lookup against several username:password
+    pairs under secrets, no other code here needs to change."""
+    if st.session_state.get("nl_authenticated"):
+        return True
+
+    def _valid_login(username, password):
+        auth = st.secrets.get("auth", {})
+        return username == auth.get("username") and password == auth.get("password")
+
+    _login_background_css()
+    st.markdown('<div class="nl-login-title">QUICKIX — NL Delete Tool</div>', unsafe_allow_html=True)
+    st.markdown('<div class="nl-login-sub">Sign in to continue</div>', unsafe_allow_html=True)
+    with st.form("nl_login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Log in")
+    if submitted:
+        if _valid_login(username, password):
+            st.session_state.nl_authenticated = True
+            st.rerun()
+        else:
+            st.error("Incorrect username or password.")
+    return False
+
+
+if not check_login():
+    st.stop()
 
 st.markdown("""
 <style>
