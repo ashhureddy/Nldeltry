@@ -40,12 +40,24 @@ def _login_background_css():
           border-radius: 14px;
           padding: 2rem 2rem 1rem 2rem;
           max-width: 420px;
-          margin: 17vh auto 0 auto;
+          margin: calc(17vh + 1.2cm) auto 0 auto;
           box-shadow: 0 8px 30px rgba(0,0,0,0.4);
       }}
       div[data-testid="stForm"] label p {{
           color: #ffffff !important;
           font-weight: 600;
+      }}
+      div[data-testid="stAlert"] {{
+          max-width: 420px;
+          margin: 1rem auto 0 auto;
+          background: #c0152b !important;
+          border: 1px solid #ff8a8a;
+          border-radius: 10px;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      }}
+      div[data-testid="stAlert"] p {{
+          color: #ffffff !important;
+          font-weight: 700;
       }}
       .nl-login-title {{
           text-align: center;
