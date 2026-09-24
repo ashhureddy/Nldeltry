@@ -117,9 +117,9 @@ def build_lte_scenario(enbid, site_list_1, cells, is_deletion, site_list_2=None,
             node_step3.append(f"cmedit get {site_list_2} TermPointToENodeB.(termPointToENodeBId,administrativeState,operationalState) -t")
             # per site: full-FDN GET -> SET LOCKED -> GET, before moving to the next site
             for site in sites:
-                node_step3.append(f"cmedit get SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},ENodeBFunction=1,EUtraNetwork=1,ExternalENodeBFunction=auto310_410_3_{enbid},TermPointToENodeB=auto1 -t")
-                node_step3.append(f"cmedit set SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},ENodeBFunction=1,EUtraNetwork=1,ExternalENodeBFunction=auto310_410_3_{enbid},TermPointToENodeB=auto1 administrativestate:LOCKED --force")
-                node_step3.append(f"cmedit get SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},ENodeBFunction=1,EUtraNetwork=1,ExternalENodeBFunction=auto310_410_3_{enbid},TermPointToENodeB=auto1 -t")
+                node_step3.append(f"cmedit get SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},GNBCUCPFunction=1,EUtraNetwork=1,ExternalENodeBFunction=auto310_410_3_{enbid},TermPointToENodeB=auto1 -t")
+                node_step3.append(f"cmedit set SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},GNBCUCPFunction=1,EUtraNetwork=1,ExternalENodeBFunction=auto310_410_3_{enbid},TermPointToENodeB=auto1 administrativestate:LOCKED --force")
+                node_step3.append(f"cmedit get SubNetwork=ONRM_ROOT_MO,MeContext={site},ManagedElement={site},GNBCUCPFunction=1,EUtraNetwork=1,ExternalENodeBFunction=auto310_410_3_{enbid},TermPointToENodeB=auto1 -t")
             # wide flat GET across the whole site list -- AFTER (all sites, once)
             node_step3.append(f"cmedit get {site_list_2} TermPointToENodeB.(termPointToENodeBId,administrativeState,operationalState) -t")
             node_step3.append(f"cmedit delete {site_list_2}  ExternalENodeBFunction.(ExternalENodeBFunctionID==auto310_410_3_{enbid}) -ALL")
