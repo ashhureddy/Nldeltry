@@ -92,11 +92,38 @@ if st.button("\u2190 Back", key="nl_scope_back"):
     st.session_state.nl_user_inputs = {}
     st.rerun()
 
-def render_generate_section(scenarios, scope_label, suppress_node_existence_check=False):
+def all_site_list_commands_fetched(scenarios, parsed_key, kgetall_texts=None):
+    """True only once the uploaded ENM log confirms every required Site List 1 (all scenarios)
+    and Site List 2 (deletion scenarios only) discovery command has actually been run.
+    'zero instances' counts as fetched (a real, complete result) -- only 'missing' (command
+    never run in the log), no log uploaded yet, or an unknown eNBId/gNBId (deletion scenario
+    still waiting on a kget-all match) blocks it."""
+    parsed_log = st.session_state.get(parsed_key)
+    if not parsed_log:
+        return False
+    kgetall_texts = kgetall_texts or []
+    for s in scenarios:
+        is_deletion = s["status"] == "deletes"
+        id_val = s.get("id_value") or (core.find_own_id_in_any_kgetall(kgetall_texts, s["node"], s["tech"]) if is_deletion else None)
+        if not id_val:
+            return False
+        status1, _ = core.site_list_1_status(parsed_log, s["tech"], id_val)
+        if status1 == core.SITE_LIST_MISSING:
+            return False
+        if is_deletion:
+            status2, _ = core.site_list_2_status(parsed_log, s["tech"], id_val, gnodeb_name=s["identity_name"])
+            if status2 == core.SITE_LIST_MISSING:
+                return False
+    return True
+
+
+def render_generate_section(scenarios, scope_label, suppress_node_existence_check=False, all_fetched=True):
     """Shared 'Generate' section for both Legacy and N2E — same assemble_outputs() call,
     same three download options, same preview expanders."""
     st.subheader("3. Generate")
-    if st.button("Generate NL Delete output files \u2192", type="primary", key=f"gen_{scope_label}"):
+    if not all_fetched:
+        st.warning("Generate is disabled until every Site List discovery command's result has been fetched -- upload the ENM CLI session log covering all of them (check the warnings above for what's still missing).")
+    if st.button("Generate NL Delete output files →", type="primary", key=f"gen_{scope_label}", disabled=not all_fetched):
         set_text, get_text = assemble_outputs(scenarios, st.session_state.nl_user_inputs,
                                                suppress_node_existence_check=suppress_node_existence_check)
         st.success("Generated.")
@@ -148,6 +175,48 @@ def render_scenarios_grouped(scenarios, render_fn):
                         render_fn(s)
             else:
                 render_fn(site_scenarios[0])
+
+
+def build_bulk_site_list_commands_text(scenarios, kgetall_texts=None):
+    """Collects every Site List 1 (sector) and Site List 2 (node, deletion-only) discovery
+    command across ALL currently-detected scenarios into one plain-text blob, so the engineer
+    can paste the whole thing into ENM in one go, save the combined output as a single .txt/.log
+    file, and upload that one file to the log uploader below instead of running each scenario's
+    discovery commands one at a time.
+
+    For Legacy 'deletes' scenarios the eNBId/gNBId isn't known until a kget-all log has been
+    uploaded (id_value is None in the scenario dict itself) -- kgetall_texts lets those still be
+    included once available. Survives scenarios (Legacy) and every N2E scenario already carry
+    id_value directly, no kget-all needed."""
+    kgetall_texts = kgetall_texts or []
+    lines = []
+    for s in scenarios:
+        is_deletion = s["status"] == "deletes"
+        if s.get("id_value") is not None:
+            id_val = s["id_value"]
+        elif is_deletion:
+            id_val = core.find_own_id_in_any_kgetall(kgetall_texts, s["node"], s["tech"])
+        else:
+            id_val = None
+        if not id_val:
+            continue
+
+        gnodeb_name = s["identity_name"]
+        lines.append(lte_sector_discovery_command(id_val) if s["tech"] == "LTE" else gnb_sector_discovery_command(id_val))
+
+        if is_deletion:
+            lines.append(lte_node_discovery_command(id_val) if s["tech"] == "LTE" else gnb_node_discovery_command(gnodeb_name, id_val))
+    return "\n".join(lines)
+
+
+def render_bulk_site_list_download(scenarios, key, kgetall_key="nl_kgetall_texts"):
+    """'Download all Site List commands' button, placed above the ENM log uploader."""
+    bulk_text = build_bulk_site_list_commands_text(scenarios, st.session_state.get(kgetall_key))
+    st.download_button(
+        "Download all Site List commands (.txt)", bulk_text,
+        file_name="site_list_discovery_commands.txt", key=key,
+        disabled=not bulk_text.strip(),
+    )
 
 
 def render_enm_log_uploader(scenarios, widget_key, session_sig_key, parsed_key, sl_key_prefix, kgetall_key="nl_kgetall_texts"):
@@ -299,7 +368,7 @@ if st.session_state.nl_scope == "Legacy":
                     st.code(gnb_sector_discovery_command(id_val), language=None)
                 sl1_key = f"sl1_{key}"
                 render_site_list_status("nl_enm_log_parsed", 1, s["tech"], id_val)
-                sl1_raw = st.text_area("Site List 1 result (sector-level)", key=sl1_key, height=80)
+                sl1_raw = st.text_area("Site List 1 result (sector-level)", key=sl1_key, height=80, disabled=True)
                 ui["site_list_1"] = core.dedupe_site_list_entries(sl1_raw)
                 dupes1 = core.find_duplicate_site_list_entries(sl1_raw)
                 if dupes1:
@@ -312,7 +381,7 @@ if st.session_state.nl_scope == "Legacy":
                     st.code(gnb_node_discovery_command(ui.get("gnodeb_name", s["identity_name"]), id_val), language=None)
                 sl2_key = f"sl2_{key}"
                 render_site_list_status("nl_enm_log_parsed", 2, s["tech"], id_val, gnodeb_name=ui.get("gnodeb_name", s["identity_name"]))
-                sl2_raw = st.text_area("Site List 2 result (node-level)", key=sl2_key, height=80)
+                sl2_raw = st.text_area("Site List 2 result (node-level)", key=sl2_key, height=80, disabled=True)
                 ui["site_list_2"] = core.dedupe_site_list_entries(sl2_raw)
                 dupes = core.find_duplicate_site_list_entries(sl2_raw)
                 if dupes:
@@ -331,7 +400,7 @@ if st.session_state.nl_scope == "Legacy":
                 st.code(lte_sector_discovery_command(id_val), language=None)
             sl1_key = f"sl1_{key}"
             render_site_list_status("nl_enm_log_parsed", 1, s["tech"], id_val, gnodeb_name=ui.get("gnodeb_name"))
-            sl1_raw = st.text_area("Site List 1 (result)", key=sl1_key, height=80)
+            sl1_raw = st.text_area("Site List 1 (result)", key=sl1_key, height=80, disabled=True)
             ui["site_list_1"] = core.dedupe_site_list_entries(sl1_raw)
             dupes1 = core.find_duplicate_site_list_entries(sl1_raw)
             if dupes1:
@@ -344,6 +413,8 @@ if st.session_state.nl_scope == "Legacy":
             st.markdown(f"**Post Configuration:** {st.session_state.get('nl_post_line', '')}")
 
 
+        render_bulk_site_list_download(scenarios, key="dl_bulk_site_list_legacy")
+
         render_enm_log_uploader(
             scenarios, widget_key="nl_enm_log_upload", session_sig_key="nl_enm_log_sig",
             parsed_key="nl_enm_log_parsed", sl_key_prefix="",
@@ -351,7 +422,8 @@ if st.session_state.nl_scope == "Legacy":
 
         st.subheader("2. Detected scenarios")
         render_scenarios_grouped(scenarios, render_scenario_inputs)
-        render_generate_section(scenarios, "legacy")
+        legacy_fetched = all_site_list_commands_fetched(scenarios, "nl_enm_log_parsed", st.session_state.get("nl_kgetall_texts"))
+        render_generate_section(scenarios, "legacy", all_fetched=legacy_fetched)
 
 elif st.session_state.nl_scope == "N2E":
     # ============================================================
@@ -392,7 +464,7 @@ elif st.session_state.nl_scope == "N2E":
             st.code(gnb_sector_discovery_command(id_val), language=None)
         n2e_sl1_key = f"n2e_sl1_{key}"
         render_site_list_status("n2e_enm_log_parsed", 1, s["tech"], id_val, gnodeb_name=ui.get("gnodeb_name"))
-        n2e_sl1_raw = st.text_area("Site List 1 result (sector-level)", key=n2e_sl1_key, height=80)
+        n2e_sl1_raw = st.text_area("Site List 1 result (sector-level)", key=n2e_sl1_key, height=80, disabled=True)
         ui["site_list_1"] = core.dedupe_site_list_entries(n2e_sl1_raw)
         n2e_dupes1 = core.find_duplicate_site_list_entries(n2e_sl1_raw)
         if n2e_dupes1:
@@ -406,7 +478,7 @@ elif st.session_state.nl_scope == "N2E":
                 st.code(gnb_node_discovery_command(ui.get("gnodeb_name", s["identity_name"]), id_val), language=None)
             n2e_sl2_key = f"n2e_sl2_{key}"
             render_site_list_status("n2e_enm_log_parsed", 2, s["tech"], id_val, gnodeb_name=ui.get("gnodeb_name"))
-            sl2_raw = st.text_area("Site List 2 result (node-level)", key=n2e_sl2_key, height=80)
+            sl2_raw = st.text_area("Site List 2 result (node-level)", key=n2e_sl2_key, height=80, disabled=True)
             ui["site_list_2"] = core.dedupe_site_list_entries(sl2_raw)
             dupes = core.find_duplicate_site_list_entries(sl2_raw)
             if dupes:
@@ -446,6 +518,8 @@ elif st.session_state.nl_scope == "N2E":
     n2e_scenarios = st.session_state.n2e_scenarios
 
     if n2e_scenarios:
+        render_bulk_site_list_download(n2e_scenarios, key="dl_bulk_site_list_n2e")
+
         render_enm_log_uploader(
             n2e_scenarios, widget_key="n2e_enm_log_upload", session_sig_key="n2e_enm_log_sig",
             parsed_key="n2e_enm_log_parsed", sl_key_prefix="n2e_",
@@ -453,4 +527,5 @@ elif st.session_state.nl_scope == "N2E":
 
         st.subheader("2. Detected scenarios")
         render_scenarios_grouped(n2e_scenarios, render_n2e_scenario_inputs)
-        render_generate_section(n2e_scenarios, "n2e", suppress_node_existence_check=True)
+        n2e_fetched = all_site_list_commands_fetched(n2e_scenarios, "n2e_enm_log_parsed")
+        render_generate_section(n2e_scenarios, "n2e", suppress_node_existence_check=True, all_fetched=n2e_fetched)
